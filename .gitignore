@@ -3,3 +3,8 @@
 .idea/ReflectionRemoval.iml
 .idea/vcs.xml
 .idea/workspace.xml
+pre-trained/
+root_training_real_data/
+test_images/
+test_results/
+VGG_Model/

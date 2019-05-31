@@ -235,20 +235,20 @@ else:
     def prepare_data_test(test_path):
         input_names = []
         for dirname in test_path:
-            for _, _, fnames in sorted(os.walk(dirname)):
+            for path, _, fnames in sorted(os.walk(dirname)):
                 for fname in fnames:
                     if is_image_file(fname):
-                        input_names.append(os.path.join(dirname, fname))
+                        input_names.append(path + '/' + fname)
+        # print(input_names)
         return input_names
 
 
     # Please replace with your own test image path
-    test_path = ["./test_images/CEILNet/"]  # ["./test_images/real/"]
-    subtask = "CEILNet"  # if you want to save different testset separately
+    test_path = ["./test_images/"]
     val_names = prepare_data_test(test_path)
 
     for val_path in val_names:
-        testind = os.path.splitext(os.path.basename(val_path))[0]
+        testind = val_path.split("/")[-2]
         if not os.path.isfile(val_path):
             continue
         img = cv2.imread(val_path)
@@ -259,11 +259,11 @@ else:
         print("Test time %.3f for image %s" % (time.time() - st, val_path))
         output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0) * 255.0
         output_image_r = np.minimum(np.maximum(output_image_r, 0.0), 1.0) * 255.0
-        if not os.path.isdir("./test_results/%s/%s" % (subtask, testind)):
-            os.makedirs("./test_results/%s/%s" % (subtask, testind))
-        cv2.imwrite("./test_results/%s/%s/input.png" % (subtask, testind), img)
-        cv2.imwrite("./test_results/%s/%s/t_output.png" % (subtask, testind),
+        if not os.path.isdir("./test_results/%s" % (testind)):
+            os.makedirs("./test_results/%s" % (testind))
+        cv2.imwrite("./test_results/%s/input.png" % (testind), img)
+        cv2.imwrite("./test_results/%s/t_output.png" % (testind),
                     np.uint8(output_image_t[0, :, :, 0:3]))  # output transmission layer
-        cv2.imwrite("./test_results/%s/%s/r_output.png" % (subtask, testind),
+        cv2.imwrite("./test_results/%s/r_output.png" % (testind),
                     np.uint8(output_image_r[0, :, :, 0:3]))  # output reflection layer
 

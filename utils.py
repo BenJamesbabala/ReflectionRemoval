@@ -90,3 +90,35 @@ def prepare_data(train_path):
                     image1.append(path_output1)
                     image2.append(path_output2)
     return input_names, image1, image2
+
+# Fetch data from benchmark database
+def fetch_data(path):
+    if not os.path.exists('./input'):
+        os.mkdir('./input')
+    if not os.path.exists('./gt'):
+        os.mkdir('./gt')
+    for _, dirs, _ in os.walk(path):
+        for dir in dirs:
+            name = '100' + dir + '.jpg'
+
+            m = os.path.join(path, dir)
+            m = os.path.join(m, 'm.jpg')
+
+            m1 = os.path.join('input', name)
+
+            g = os.path.join(path, dir)
+            g = os.path.join(g, 'g.jpg')
+            g1 = os.path.join('gt', name)
+
+
+            os.rename(m, m1)
+            os.rename(g, g1)
+
+# Check if input and ground truth are in pair
+def pair_test(dir1, dir2):
+    for _, _, files in os.walk(dir1):
+        for file in files:
+            pair = os.path.join(dir2, file)
+            if not os.path.exists(pair):
+                print(file, 'Not in pair')
+                break;

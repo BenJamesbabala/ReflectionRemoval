@@ -1,5 +1,7 @@
 import tensorflow.contrib.slim as slim
+import tensorflow as tf
 from vgg19 import build_vgg19
+import numpy as np
 
 ###################Reflection Removal Model#######################
 def lrelu(x):
@@ -22,7 +24,7 @@ def nm(x):
     w1=tf.Variable(0.0,name='w1')
     return w0*x+w1*slim.batch_norm(x)
 
-def build(input):
+def build(input, hyper, channel):
     if hyper:
         print("[i] Hypercolumn ON, building hypercolumn features ... ")
         vgg19_features=build_vgg19(input[:,:,:,0:3]*255.0)

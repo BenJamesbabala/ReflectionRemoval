@@ -8,3 +8,4 @@ root_training_real_data/
 test_images/
 test_results/
 VGG_Model/
+__pycache__/

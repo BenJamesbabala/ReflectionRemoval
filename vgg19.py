@@ -1,3 +1,7 @@
+import scipy.io
+import tensorflow as tf
+import numpy as np
+
 def build_net(ntype,nin,nwb=None,name=None):
     if ntype=='conv':
         return tf.nn.relu(tf.nn.conv2d(nin,nwb[0],strides=[1,1,1,1],padding='SAME',name=name)+nwb[1])

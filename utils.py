@@ -1,9 +1,6 @@
 from __future__ import division
-import os, time, cv2, scipy.io
-import tensorflow as tf
-import tensorflow.contrib.slim as slim
+import cv2, os
 import numpy as np
-import matplotlib.pyplot as plt
 import scipy.stats as st
 
 IMG_EXTENSIONS = [
@@ -64,3 +61,32 @@ def syn_data(t, r, sigma):
     blend[blend <= 0] = 0
 
     return t, r_blur_mask, blend
+
+def prepare_data_test(test_path):
+    input_names = []
+    for dirname in test_path:
+        for path, _, fnames in sorted(os.walk(dirname)):
+            for fname in fnames:
+                if is_image_file(fname):
+                    input_names.append(path + '/' + fname)
+    # print(input_names)
+    return input_names
+
+def prepare_data(train_path):
+    input_names = []
+    image1 = []
+    image2 = []
+    for dirname in train_path:
+        train_t_gt = dirname + "/transmission_layer/"
+        train_r_gt = dirname + "/reflection_layer/"
+        train_b = dirname + "/blended/"
+        for root, _, fnames in sorted(os.walk(train_t_gt)):
+            for fname in fnames:
+                if is_image_file(fname):
+                    path_input = os.path.join(train_b, fname)
+                    path_output1 = os.path.join(train_t_gt, fname)
+                    path_output2 = os.path.join(train_r_gt, fname)
+                    input_names.append(path_input)
+                    image1.append(path_output1)
+                    image2.append(path_output2)
+    return input_names, image1, image2

@@ -5,13 +5,15 @@ import numpy as np
 import argparse
 
 from discriminator import build_discriminator
-from model import build, compute_l1_loss, compute_percep_loss, compute_exclusion_loss
-from utils import syn_data, prepare_data
+from model import build, compute_percep_loss
+from utils import prepare_data
+
+from tensorboard_logging import Logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", default="pre-trained", help="path to folder containing the model")
 parser.add_argument("--data_real_dir", default="root_training_real_data", help="path to real dataset")
-parser.add_argument("--save_model_freq", default=10, type=int, help="frequency to save model")
+parser.add_argument("--save_model_freq", default=1, type=int, help="frequency to save model")
 parser.add_argument("--is_hyper", default=1, type=int, help="use hypercolumn or not")
 parser.add_argument("--continue_training", action="store_true",
                     help="search for checkpoint in the subfolder specified by `task` argument")
@@ -21,6 +23,7 @@ task = ARGS.task
 continue_training = ARGS.continue_training
 hyper = ARGS.is_hyper == 1
 
+maxepoch = 300
 # os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
 os.environ['CUDA_VISIBLE_DEVICES'] = str(0)
 EPS = 1e-12
@@ -40,7 +43,6 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
-    loss = loss_percep_t * 0.2
 
     # Adversarial Loss
     with tf.variable_scope("discriminator"):
@@ -54,7 +56,7 @@ with tf.variable_scope(tf.get_variable_scope()):
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
-g_opt = tf.train.AdamOptimizer(learning_rate=0.0002).minimize(loss * 100 + g_loss, var_list=g_vars)  # optimizer for the generator
+g_opt = tf.train.AdamOptimizer(learning_rate=0.0002).minimize(loss_percep_t * 20 + g_loss, var_list=g_vars)  # optimizer for the generator
 d_opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(d_loss, var_list=d_vars)  # optimizer for the discriminator
 
 for var in tf.trainable_variables():
@@ -69,28 +71,28 @@ sess.run(tf.global_variables_initializer())
 ckpt = tf.train.get_checkpoint_state(task)
 print("[i] contain checkpoint: ", ckpt)
 if ckpt and continue_training:
+    print('continue_training', continue_training)
     saver_restore = tf.train.Saver([var for var in tf.trainable_variables()])
     print('loaded ' + ckpt.model_checkpoint_path)
     saver_restore.restore(sess, ckpt.model_checkpoint_path)
 # test doesn't need to load discriminator
 else:
+    print('continue_training', continue_training)
     saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
     print('loaded ' + ckpt.model_checkpoint_path)
     saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
-maxepoch = 100
-k_sz = np.linspace(1, 5, 80)  # for synthetic images
-
 input_real_names, output_real_names1, output_real_names2 = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
 
-num_train = len(output_real_names1)
-all_l = np.zeros(num_train, dtype=float)
-all_percep = np.zeros(num_train, dtype=float)
-all_grad = np.zeros(num_train, dtype=float)
-all_g = np.zeros(num_train, dtype=float)
+num_train = 1#len(output_real_names1)
+logger = Logger('logs')
 
 for epoch in range(1, maxepoch):
+    sum_p = 0
+    sum_g = 0
+    sum_d = 0
+
     input_images = [None] * num_train
     output_images_t = [None] * num_train
     output_images_r = [None] * num_train
@@ -130,26 +132,36 @@ for epoch in range(1, maxepoch):
             fetch_list = [g_opt,
                           transmission_layer, reflection_layer,
                           d_loss, g_loss,
-                          loss]
-            _, pred_image_t, pred_image_r, current_d, current_g, current = \
+                          loss_percep_t]
+            _, pred_image_t, pred_image_r, current_d, current_g, current_p = \
                 sess.run(fetch_list, feed_dict={input: input_images[id], target: output_images_t[id]})
 
-            all_l[id] = current
-            all_g[id] = current_g
-            g_mean = np.mean(all_g[np.where(all_g)])
-            print("iter: %d %d || D: %.2f || G: %.2f %.2f || all: %.2f || time: %.2f" %
+            sum_p += current_p
+            sum_g += current_g
+            sum_d += current_d
+
+            print("iter: %d %d || D: %.2f || G: %.2f || P: %.2f || time: %.2f" %
                         (epoch, cnt,
                          current_d,
-                         current_g, g_mean,
-                         np.mean(all_l[np.where(all_l)]),
+                         current_g,
+                         current_p,
                          time.time() - st))
             cnt += 1
             input_images[id] = 1.
             output_images_t[id] = 1.
             output_images_r[id] = 1.
 
+    sum_p /= cnt
+    sum_g /= cnt
+    sum_d /= cnt
+
+    # print('==========', sum_p, sum_g, sum_d)
+    logger.log_scalar('generator loss', sum_g, epoch)
+    logger.log_scalar('perceptual loss', sum_p, epoch)
+    logger.log_scalar('discriminator loss', sum_d, epoch)
+
     # save model and images every epoch
-    if epoch % ARGS.save_model_freq == 0:
+    if epoch > 90 and epoch % ARGS.save_model_freq == 0:
         os.makedirs("%s/%04d" % (task, epoch))
         saver.save(sess, "%s/model.ckpt" % task)
         saver.save(sess, "%s/%04d/model.ckpt" % (task, epoch))

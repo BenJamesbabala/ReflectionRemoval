@@ -85,7 +85,7 @@ else:
 input_real_names, output_real_names1, output_real_names2 = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
 
-num_train = 1#len(output_real_names1)
+num_train = len(output_real_names1)
 logger = Logger('logs')
 
 for epoch in range(1, maxepoch):

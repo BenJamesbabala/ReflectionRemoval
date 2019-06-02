@@ -75,12 +75,6 @@ if ckpt and continue_training:
     saver_restore = tf.train.Saver([var for var in tf.trainable_variables()])
     print('loaded ' + ckpt.model_checkpoint_path)
     saver_restore.restore(sess, ckpt.model_checkpoint_path)
-# test doesn't need to load discriminator
-else:
-    print('continue_training', continue_training)
-    saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
-    print('loaded ' + ckpt.model_checkpoint_path)
-    saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
 input_real_names, output_real_names1, output_real_names2 = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))

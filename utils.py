@@ -114,6 +114,17 @@ def fetch_data(path):
             os.rename(m, m1)
             os.rename(g, g1)
 
+def fetch_test_data(path):
+    if not os.path.exists('./input'):
+        os.mkdir('./input')
+    for _, dirs, _ in os.walk(path):
+        for dir in dirs:
+            name = dir + '.jpg'
+            m = os.path.join(path, dir)
+            m = os.path.join(m, 'm.jpg')
+            m1 = os.path.join('input', name)
+            os.rename(m, m1)
+
 # Check if input and ground truth are in pair
 def pair_test(dir1, dir2):
     for _, _, files in os.walk(dir1):

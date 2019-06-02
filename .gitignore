@@ -10,3 +10,5 @@ test_results/
 VGG_Model/
 __pycache__/
 root_training_synthetic_data/
+real/
+duplicated/

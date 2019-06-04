@@ -1,4 +1,4 @@
-name: perceptual-reflection-removal
+name: reflection-removal
 channels:
   - defaults
 dependencies:
@@ -74,4 +74,3 @@ dependencies:
   - xz=5.2.4=h2fa13f4_4
   - zlib=1.2.11=h62dcd97_3
   - zstd=1.3.7=h508b16e_0
-prefix: C:\Anaconda3\envs\perceptual-reflection-removal

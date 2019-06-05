@@ -184,9 +184,12 @@ for epoch in range(1, maxepoch):
         output_image_t = denormalize(output_image_t, VGG_MEAN)
         output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)
 
-        print(input_image_t.shape, output_image_t)
-
+        assert (input_image_t.shape[2] == 3 and output_image_t[2] == 3 and input_image_t.shape[0] == output_image_t.shape[0] and input_image_t.shape[1] == output_image_t.shape[1])
+        assert (np.abs(input_image_t[0][0][0] - output_image_t[0][0][0]) < 1.0)
+        
         mse = ((input_image_t - output_image_t) ** 2).mean()
+        print('MSE of ', b[i], ': ', mse)
+
         sum_mse += mse
         sum_psnr += 10. * np.log10(1. / mse)
 

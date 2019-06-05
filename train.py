@@ -5,7 +5,7 @@ import numpy as np
 import argparse
 
 from discriminator import build_discriminator
-from model import build, compute_percep_loss
+from model import build, compute_percep_loss, compute_l1_loss, compute_exclusion_loss
 from utils import prepare_data
 
 from tensorboard_logging import Logger
@@ -43,6 +43,11 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
+    loss_percep_r = compute_percep_loss(reflection_layer, reflection, reuse=True)
+    loss_percep = loss_percep_t + loss_percep_r
+
+    # L1 loss on reflection image
+    loss_l1_r = compute_l1_loss(reflection_layer, reflection)
 
     # Adversarial Loss
     with tf.variable_scope("discriminator"):
@@ -53,10 +58,16 @@ with tf.variable_scope(tf.get_variable_scope()):
     d_loss = (tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))) * 0.5
     g_loss = tf.reduce_mean(-tf.log(predict_fake + EPS))
 
+    # Gradient loss
+    loss_gradx, loss_grady = compute_exclusion_loss(transmission_layer, reflection_layer, level=3)
+    loss_grad = tf.reduce_sum(sum(loss_gradx) / 3.) + tf.reduce_sum(sum(loss_grady) / 3.)
+
+    loss = loss_l1_r * 0.5 + loss_percep * 0.2 + loss_grad * 0.1 + g_loss * 0.01
+
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
-g_opt = tf.train.AdamOptimizer(learning_rate=0.0002).minimize(loss_percep_t * 20 + g_loss, var_list=g_vars)  # optimizer for the generator
+g_opt = tf.train.AdamOptimizer(learning_rate=0.002).minimize(loss, var_list=g_vars)  # optimizer for the generator
 d_opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(d_loss, var_list=d_vars)  # optimizer for the discriminator
 
 for var in tf.trainable_variables():
@@ -86,6 +97,8 @@ for epoch in range(1, maxepoch):
     sum_p = 0
     sum_g = 0
     sum_d = 0
+    sum_grad = 0
+    sum_loss = 0
 
     input_images = [None] * num_train
     output_images_t = [None] * num_train
@@ -126,19 +139,23 @@ for epoch in range(1, maxepoch):
             fetch_list = [g_opt,
                           transmission_layer, reflection_layer,
                           d_loss, g_loss,
-                          loss_percep_t]
-            _, pred_image_t, pred_image_r, current_d, current_g, current_p = \
+                          loss_percep, loss_grad, loss]
+            _, pred_image_t, pred_image_r, current_d, current_g, current_p, current_grad, current_loss= \
                 sess.run(fetch_list, feed_dict={input: input_images[id], target: output_images_t[id]})
 
             sum_p += current_p
             sum_g += current_g
             sum_d += current_d
+            sum_grad += current_grad
+            sum_loss += current_loss
 
-            print("iter: %d %d || D: %.2f || G: %.2f || P: %.2f || time: %.2f" %
+            print("iter: %d %d || D: %.2f || G: %.2f || P: %.2f || GRAD: %.2f || ALL: %.2f || time: %.2f" %
                         (epoch, cnt,
                          current_d,
                          current_g,
                          current_p,
+                         current_grad,
+                         current_loss,
                          time.time() - st))
             cnt += 1
             input_images[id] = 1.
@@ -148,14 +165,18 @@ for epoch in range(1, maxepoch):
     sum_p /= cnt
     sum_g /= cnt
     sum_d /= cnt
+    sum_grad /= cnt
+    sum_loss /= cnt
 
     # print('==========', sum_p, sum_g, sum_d)
     logger.log_scalar('generator loss', sum_g, epoch)
     logger.log_scalar('perceptual loss', sum_p, epoch)
     logger.log_scalar('discriminator loss', sum_d, epoch)
+    logger.log_scalar('gradient loss', sum_grad, epoch)
+    logger.log_scalar('total loss', sum_loss, epoch)
 
     # save model and images every epoch
-    if epoch > 90 and epoch % ARGS.save_model_freq == 0:
+    if epoch > 20 and epoch % ARGS.save_model_freq == 0:
         os.makedirs("%s/%04d" % (task, epoch))
         saver.save(sess, "%s/model.ckpt" % task)
         saver.save(sess, "%s/%04d/model.ckpt" % (task, epoch))

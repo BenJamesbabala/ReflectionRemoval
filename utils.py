@@ -133,3 +133,22 @@ def pair_test(dir1, dir2):
             if not os.path.exists(pair):
                 print(file, 'Not in pair')
                 break;
+
+def normalize(input, mean):
+    assert (input.shape[2] == 3 and len(mean) == 3)
+
+    input[:, :, 0] -= mean[0]
+    input[:, :, 1] -= mean[1]
+    input[:, :, 2] -= mean[2]
+
+    return input
+
+
+def denormalize(input, mean):
+    assert (input.shape[2] == 3 and len(mean) == 3)
+
+    input[:, :, 0] += mean[0]
+    input[:, :, 1] += mean[1]
+    input[:, :, 2] += mean[2]
+
+    return input

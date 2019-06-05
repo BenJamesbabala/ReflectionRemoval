@@ -6,7 +6,7 @@ import argparse
 
 from discriminator import build_discriminator
 from model import build, compute_percep_loss, compute_l1_loss, compute_exclusion_loss
-from utils import prepare_data
+from utils import prepare_data, normalize, denormalize
 
 from tensorboard_logging import Logger
 
@@ -28,6 +28,7 @@ maxepoch = 300
 os.environ['CUDA_VISIBLE_DEVICES'] = str(0)
 EPS = 1e-12
 channel = 64  # number of feature channels to build the model, set to 64
+VGG_MEAN = [103.939, 116.779, 123.68] # B G R
 
 train_real_root = [ARGS.data_real_dir]
 
@@ -122,6 +123,10 @@ for epoch in range(1, maxepoch):
             output_image_t = cv2.resize(np.float32(cv2.imread(output_real_names1[_id], -1)), (neww, newh),
                                         cv2.INTER_CUBIC) / 255.0
             sigma = 0.0
+
+            input_image = normalize(input_image, VGG_MEAN)
+            output_image_t = normalize(output_image_t, VGG_MEAN)
+
             input_images[id] = np.expand_dims(input_image, axis=0)
             output_images_t[id] = np.expand_dims(output_image_t, axis=0)
 
@@ -170,12 +175,15 @@ for epoch in range(1, maxepoch):
     n = len(b)
     for i in range(n):
         img = cv2.imread(b[i])
-        input_image = np.expand_dims(np.float32(img), axis=0) / 255.0
-        img1 = cv2.imread(t[i])
-        input_image_t = np.expand_dims(np.float32(img1), axis=0) / 255.0
+        img = normalize(img, VGG_MEAN)
+        input_image = np.float32(img) / 255.0
 
         output_image_t = sess.run([transmission_layer], feed_dict={input: input_image})
-        output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0) * 255.0
+
+        input_image_t = np.float32(cv2.imread(t[i])) / 255.0
+        output_image_t = denormalize(output_image_t, VGG_MEAN)
+        output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)
+
         print(input_image_t.shape, output_image_t)
 
         mse = ((input_image_t - output_image_t) ** 2).mean()

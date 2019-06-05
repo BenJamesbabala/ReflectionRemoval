@@ -87,7 +87,7 @@ if ckpt and continue_training:
     print('loaded ' + ckpt.model_checkpoint_path)
     saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
-input_real_names, output_real_names1, output_real_names2 = prepare_data(train_real_root)  # no reflection ground truth for real images
+input_real_names, output_real_names1, _ = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
 
 num_train = len(output_real_names1)
@@ -99,6 +99,9 @@ for epoch in range(1, maxepoch):
     sum_d = 0
     sum_grad = 0
     sum_loss = 0
+
+    sum_mse = 0
+    sum_psnr = 0
 
     input_images = [None] * num_train
     output_images_t = [None] * num_train
@@ -162,11 +165,30 @@ for epoch in range(1, maxepoch):
             output_images_t[id] = 1.
             output_images_r[id] = 1.
 
+    test_path = ['dev_images/']
+    b, t, _ = prepare_data(test_path)
+    n = len(b)
+    for i in range(n):
+        img = cv2.imread(b[i])
+        input_image = np.expand_dims(np.float32(img), axis=0) / 255.0
+        img1 = cv2.imread(t[i])
+        input_image_t = np.expand_dims(np.float32(img1), axis=0) / 255.0
+
+        output_image_t = sess.run([transmission_layer], feed_dict={input: input_image})
+        output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0) * 255.0
+        print(input_image_t.shape, output_image_t)
+
+        mse = ((input_image_t - output_image_t) ** 2).mean()
+        sum_mse += mse
+        sum_psnr += 10. * np.log10(1. / mse)
+
     sum_p /= cnt
     sum_g /= cnt
     sum_d /= cnt
     sum_grad /= cnt
     sum_loss /= cnt
+    sum_mse /= n
+    sum_psnr /= n
 
     # print('==========', sum_p, sum_g, sum_d)
     logger.log_scalar('generator loss', sum_g, epoch)
@@ -174,6 +196,8 @@ for epoch in range(1, maxepoch):
     logger.log_scalar('discriminator loss', sum_d, epoch)
     logger.log_scalar('gradient loss', sum_grad, epoch)
     logger.log_scalar('total loss', sum_loss, epoch)
+    logger.log_scalar('MSE', sum_mse, epoch)
+    logger.log_scalar('PSNR', sum_psnr, epoch)
 
     # save model and images every epoch
     if epoch > 20 and epoch % ARGS.save_model_freq == 0:

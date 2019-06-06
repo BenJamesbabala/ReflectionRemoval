@@ -6,7 +6,7 @@ import argparse
 
 from discriminator import build_discriminator
 from model import build, compute_percep_loss, compute_l1_loss, compute_exclusion_loss
-from utils import prepare_data, normalize, denormalize
+from utils import prepare_data
 
 from tensorboard_logging import Logger
 
@@ -23,7 +23,7 @@ task = ARGS.task
 continue_training = ARGS.continue_training
 hyper = ARGS.is_hyper == 1
 
-maxepoch = 300
+maxepoch = 200
 # os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
 os.environ['CUDA_VISIBLE_DEVICES'] = str(0)
 EPS = 1e-12
@@ -44,8 +44,6 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
-    #loss_percep_r = compute_percep_loss(reflection_layer, reflection, reuse=True)
-    loss_percep = loss_percep_t
 
     # L1 loss on reflection image
     loss_l1_r = compute_l1_loss(reflection_layer, reflection)
@@ -63,17 +61,17 @@ with tf.variable_scope(tf.get_variable_scope()):
     loss_gradx, loss_grady = compute_exclusion_loss(transmission_layer, reflection_layer, level=3)
     loss_grad = tf.reduce_sum(sum(loss_gradx) / 3.) + tf.reduce_sum(sum(loss_grady) / 3.)
 
-    loss = loss_l1_r + loss_percep * 0.2 + loss_grad * 0.1 + g_loss * 0.01
+    loss = loss_l1_r + loss_percep_t * 0.2 + loss_grad * 0.1 + g_loss * 0.01
 
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
-g_opt = tf.train.AdamOptimizer(learning_rate=0.01).minimize(loss, var_list=g_vars)  # optimizer for the generator
+g_opt = tf.train.AdamOptimizer(learning_rate=0.001).minimize(loss, var_list=g_vars)  # optimizer for the generator
 d_opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(d_loss, var_list=d_vars)  # optimizer for the discriminator
 
-for var in tf.trainable_variables():
-    print("Listing trainable variables ... ")
-    print(var)
+# for var in tf.trainable_variables():
+#     print("Listing trainable variables ... ")
+#     print(var)
 
 saver = tf.train.Saver(max_to_keep=200)
 
@@ -82,11 +80,9 @@ sess = tf.Session()
 sess.run(tf.global_variables_initializer())
 ckpt = tf.train.get_checkpoint_state(task)
 print("[i] contain checkpoint: ", ckpt)
-if ckpt and continue_training:
-    print('continue_training', continue_training)
-    saver_restore = tf.train.Saver([var for var in tf.trainable_variables()])
-    print('loaded ' + ckpt.model_checkpoint_path)
-    saver_restore.restore(sess, ckpt.model_checkpoint_path)
+saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
+print('loaded ' + ckpt.model_checkpoint_path)
+saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
 input_real_names, output_real_names1, _ = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
@@ -99,9 +95,10 @@ for epoch in range(1, maxepoch):
     sum_g = 0
     sum_d = 0
     sum_grad = 0
+    sum_l1 = 0
     sum_loss = 0
 
-    sum_mse = 0
+    sum_ssim = 0
     sum_psnr = 0
 
     picked = [None] * num_train
@@ -143,8 +140,8 @@ for epoch in range(1, maxepoch):
             fetch_list = [g_opt,
                           transmission_layer, reflection_layer,
                           d_loss, g_loss,
-                          loss_percep, loss_grad, loss]
-            _, pred_image_t, pred_image_r, current_d, current_g, current_p, current_grad, current_loss= \
+                          loss_percep_t, loss_grad, loss_l1_r, loss]
+            _, pred_image_t, pred_image_r, current_d, current_g, current_p, current_grad, current_l1, current_loss= \
                 sess.run(fetch_list, feed_dict={input: in_, target: out_t, reflection:out_r})
 
             sum_p += current_p
@@ -152,9 +149,11 @@ for epoch in range(1, maxepoch):
             sum_d += current_d
             sum_grad += current_grad
             sum_loss += current_loss
+            sum_l1 += current_l1
 
-            print("iter: %d %d || D: %.2f || G: %.2f || P: %.2f || GRAD: %.2f || ALL: %.2f || time: %.2f" %
+            print("iter: %d %d || L1: %.2f  || D: %.2f || G: %.2f || P: %.2f || GRAD: %.2f || ALL: %.2f || time: %.2f" %
                         (epoch, cnt,
+                         current_l1,
                          current_d,
                          current_g,
                          current_p,
@@ -164,33 +163,39 @@ for epoch in range(1, maxepoch):
             cnt += 1
             picked[id] = 1
 
-    test_path = ['dev_images/']
+    test_path = ['dev_images']
     in_dev, out_dev, _ = prepare_data(test_path)
     num_dev = len(in_dev)
     for i in range(num_dev):
         img = cv2.imread(in_dev[i])
-        input_image = np.float32(img) / 255.0
+        size = (480, round((480 / img.shape[1]) * img.shape[0]))
 
-        output_image_t = sess.run([transmission_layer], feed_dict={input: input_image})
+        input_image = cv2.resize(np.float32(img), size, cv2.INTER_CUBIC) / 255.0
+        input_image = np.expand_dims(np.float32(input_image), axis=0)
 
-        input_image_t = np.float32(cv2.imread(out_dev[i])) / 255.0
-        output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)
+        output_image_t, _ = sess.run([transmission_layer, reflection_layer], feed_dict={input: input_image})
+        output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)[0, :, :, :]
 
-        assert (input_image_t.shape[2] == 3 and output_image_t[2] == 3 and input_image_t.shape[0] == output_image_t.shape[0] and input_image_t.shape[1] == output_image_t.shape[1])
+        input_image_t = cv2.resize(np.float32(cv2.imread(out_dev[i])), size, cv2.INTER_CUBIC) / 255.0
+
+        assert (input_image_t.shape[2] == 3 and output_image_t.shape[2] == 3 and input_image_t.shape[0] == output_image_t.shape[0] and input_image_t.shape[1] == output_image_t.shape[1])
         assert (np.abs(input_image_t[0][0][0] - output_image_t[0][0][0]) < 1.0)
-        
-        mse = ((input_image_t - output_image_t) ** 2).mean()
-        print('MSE of ', in_dev[i], ': ', mse)
 
-        sum_mse += mse
-        sum_psnr += 10. * np.log10(1. / mse)
+        sum_psnr += sess.run(tf.image.psnr(input_image_t, output_image_t, max_val=1.0))
+        sum_ssim += sess.run(tf.image.ssim(tf.image.convert_image_dtype(input_image_t, tf.float32), tf.image.convert_image_dtype(output_image_t, tf.float32), max_val=1.0))
+
+        # cv2.imwrite("./test_results/test_t_input.png" ,
+        #             np.uint8(input_image_t[:, :, 0:3]*255))  # output transmission layer
+        # cv2.imwrite("./test_results/test_r_output.png",
+        #             np.uint8(output_image_t[:, :, 0:3]*255))  # output reflection layer
 
     sum_p /= cnt
     sum_g /= cnt
     sum_d /= cnt
     sum_grad /= cnt
+    sum_l1 /= cnt
     sum_loss /= cnt
-    sum_mse /= num_dev
+    sum_ssim /= num_dev
     sum_psnr /= num_dev
 
     # print('==========', sum_p, sum_g, sum_d)
@@ -198,8 +203,9 @@ for epoch in range(1, maxepoch):
     logger.log_scalar('perceptual loss', sum_p, epoch)
     logger.log_scalar('discriminator loss', sum_d, epoch)
     logger.log_scalar('gradient loss', sum_grad, epoch)
+    logger.log_scalar('L1 loss', sum_l1, epoch)
     logger.log_scalar('total loss', sum_loss, epoch)
-    logger.log_scalar('MSE', sum_mse, epoch)
+    logger.log_scalar('SSIM', sum_ssim, epoch)
     logger.log_scalar('PSNR', sum_psnr, epoch)
 
     # save model and images every epoch

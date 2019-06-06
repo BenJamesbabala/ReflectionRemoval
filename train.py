@@ -45,7 +45,7 @@ with tf.variable_scope(tf.get_variable_scope()):
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
     #loss_percep_r = compute_percep_loss(reflection_layer, reflection, reuse=True)
-    loss_percep = loss_percep_t #+ loss_percep_r
+    loss_percep = loss_percep_t
 
     # L1 loss on reflection image
     loss_l1_r = compute_l1_loss(reflection_layer, reflection)

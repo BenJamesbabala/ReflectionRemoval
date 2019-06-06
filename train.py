@@ -44,8 +44,8 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
-    loss_percep_r = compute_percep_loss(reflection_layer, reflection, reuse=True)
-    loss_percep = loss_percep_t + loss_percep_r
+    #loss_percep_r = compute_percep_loss(reflection_layer, reflection, reuse=True)
+    loss_percep = loss_percep_t #+ loss_percep_r
 
     # L1 loss on reflection image
     loss_l1_r = compute_l1_loss(reflection_layer, reflection)
@@ -63,19 +63,19 @@ with tf.variable_scope(tf.get_variable_scope()):
     loss_gradx, loss_grady = compute_exclusion_loss(transmission_layer, reflection_layer, level=3)
     loss_grad = tf.reduce_sum(sum(loss_gradx) / 3.) + tf.reduce_sum(sum(loss_grady) / 3.)
 
-    loss = loss_l1_r * 0.5 + loss_percep * 0.2 + loss_grad * 0.1 + g_loss * 0.01
+    loss = loss_l1_r + loss_percep * 0.2 + loss_grad * 0.1 + g_loss * 0.01
 
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
-g_opt = tf.train.AdamOptimizer(learning_rate=0.002).minimize(loss, var_list=g_vars)  # optimizer for the generator
+g_opt = tf.train.AdamOptimizer(learning_rate=0.01).minimize(loss, var_list=g_vars)  # optimizer for the generator
 d_opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(d_loss, var_list=d_vars)  # optimizer for the discriminator
 
 for var in tf.trainable_variables():
     print("Listing trainable variables ... ")
     print(var)
 
-saver = tf.train.Saver(max_to_keep=10)
+saver = tf.train.Saver(max_to_keep=200)
 
 ######### Session #########
 sess = tf.Session()
@@ -104,16 +104,14 @@ for epoch in range(1, maxepoch):
     sum_mse = 0
     sum_psnr = 0
 
-    input_images = [None] * num_train
-    output_images_t = [None] * num_train
-    output_images_r = [None] * num_train
+    picked = [None] * num_train
 
     if os.path.isdir("%s/%04d" % (task, epoch)):
         continue
     cnt = 0
     for id in np.random.permutation(num_train):
         st = time.time()
-        if input_images[id] is None:
+        if picked[id] is None:
             _id = id % len(input_real_names)
             inputimg = cv2.imread(input_real_names[_id], -1)
             file = os.path.splitext(os.path.basename(input_real_names[_id]))[0]
@@ -124,32 +122,30 @@ for epoch in range(1, maxepoch):
                                         cv2.INTER_CUBIC) / 255.0
             sigma = 0.0
 
-            input_image = normalize(input_image, VGG_MEAN)
-            output_image_t = normalize(output_image_t, VGG_MEAN)
-
-            input_images[id] = np.expand_dims(input_image, axis=0)
-            output_images_t[id] = np.expand_dims(output_image_t, axis=0)
+            in_ = np.expand_dims(input_image, axis=0)
+            out_t = np.expand_dims(output_image_t, axis=0)
+            out_r = np.expand_dims(input_image - output_image_t, axis=0)
 
             # remove some degenerated images (low-light or over-saturated images), heuristically set
-            if output_images_t[id].max() < 0.15:
-                print("Invalid reflection file %s (degenerate channel)" % (file))
-                continue
-            if input_images[id].max() < 0.1:
-                print("Invalid file %s (degenerate image)" % (file))
-                continue
+            # if output_images_t[id].max() < 0.15:
+            #     print("Invalid reflection file %s (degenerate channel)" % (file))
+            #     continue
+            # if input_images[id].max() < 0.1:
+            #     print("Invalid file %s (degenerate image)" % (file))
+            #     continue
 
             # alternate training, update discriminator every two iterations
             if cnt % 2 == 0:
                 # update D
                 fetch_list = [d_opt]
-                _ = sess.run(fetch_list, feed_dict={input: input_images[id], target: output_images_t[id]})
+                _ = sess.run(fetch_list, feed_dict={input: in_, target: out_t})
             # update G
             fetch_list = [g_opt,
                           transmission_layer, reflection_layer,
                           d_loss, g_loss,
                           loss_percep, loss_grad, loss]
             _, pred_image_t, pred_image_r, current_d, current_g, current_p, current_grad, current_loss= \
-                sess.run(fetch_list, feed_dict={input: input_images[id], target: output_images_t[id]})
+                sess.run(fetch_list, feed_dict={input: in_, target: out_t, reflection:out_r})
 
             sum_p += current_p
             sum_g += current_g
@@ -166,29 +162,25 @@ for epoch in range(1, maxepoch):
                          current_loss,
                          time.time() - st))
             cnt += 1
-            input_images[id] = 1.
-            output_images_t[id] = 1.
-            output_images_r[id] = 1.
+            picked[id] = 1
 
     test_path = ['dev_images/']
-    b, t, _ = prepare_data(test_path)
-    n = len(b)
-    for i in range(n):
-        img = cv2.imread(b[i])
-        img = normalize(img, VGG_MEAN)
+    in_dev, out_dev, _ = prepare_data(test_path)
+    num_dev = len(in_dev)
+    for i in range(num_dev):
+        img = cv2.imread(in_dev[i])
         input_image = np.float32(img) / 255.0
 
         output_image_t = sess.run([transmission_layer], feed_dict={input: input_image})
 
-        input_image_t = np.float32(cv2.imread(t[i])) / 255.0
-        output_image_t = denormalize(output_image_t, VGG_MEAN)
+        input_image_t = np.float32(cv2.imread(out_dev[i])) / 255.0
         output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)
 
         assert (input_image_t.shape[2] == 3 and output_image_t[2] == 3 and input_image_t.shape[0] == output_image_t.shape[0] and input_image_t.shape[1] == output_image_t.shape[1])
         assert (np.abs(input_image_t[0][0][0] - output_image_t[0][0][0]) < 1.0)
         
         mse = ((input_image_t - output_image_t) ** 2).mean()
-        print('MSE of ', b[i], ': ', mse)
+        print('MSE of ', in_dev[i], ': ', mse)
 
         sum_mse += mse
         sum_psnr += 10. * np.log10(1. / mse)
@@ -198,8 +190,8 @@ for epoch in range(1, maxepoch):
     sum_d /= cnt
     sum_grad /= cnt
     sum_loss /= cnt
-    sum_mse /= n
-    sum_psnr /= n
+    sum_mse /= num_dev
+    sum_psnr /= num_dev
 
     # print('==========', sum_p, sum_g, sum_d)
     logger.log_scalar('generator loss', sum_g, epoch)
@@ -211,7 +203,7 @@ for epoch in range(1, maxepoch):
     logger.log_scalar('PSNR', sum_psnr, epoch)
 
     # save model and images every epoch
-    if epoch > 20 and epoch % ARGS.save_model_freq == 0:
+    if epoch > 50 and epoch % ARGS.save_model_freq == 0:
         os.makedirs("%s/%04d" % (task, epoch))
         saver.save(sess, "%s/model.ckpt" % task)
         saver.save(sess, "%s/%04d/model.ckpt" % (task, epoch))

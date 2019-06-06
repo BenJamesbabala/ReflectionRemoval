@@ -15,3 +15,6 @@ duplicated/
 test_results_*
 r0*
 logs/
+dev_images/
+pre-trained-o/
+root_training_real_data - Copy/

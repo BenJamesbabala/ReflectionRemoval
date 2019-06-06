@@ -12,3 +12,6 @@ __pycache__/
 root_training_synthetic_data/
 real/
 duplicated/
+test_results_*
+r0*
+logs/

@@ -63,6 +63,12 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     loss = loss_l1_r + loss_percep_t * 0.2 + loss_grad * 0.1 + g_loss * 0.01
 
+    input_t = tf.placeholder(tf.float32, shape=[None, None, 3])
+    output_t = tf.placeholder(tf.float32, shape=[None, None, 3])
+
+    psnr = tf.image.psnr(output_t, input_t, max_val=1.0)
+    ssim = tf.image.ssim(tf.image.convert_image_dtype(output_t, tf.float32), tf.image.convert_image_dtype(input_t, tf.float32), max_val=1.0)
+
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
@@ -173,16 +179,19 @@ for epoch in range(1, maxepoch):
         input_image = cv2.resize(np.float32(img), size, cv2.INTER_CUBIC) / 255.0
         input_image = np.expand_dims(np.float32(input_image), axis=0)
 
+        input_image_t = cv2.resize(np.float32(cv2.imread(out_dev[i])), size, cv2.INTER_CUBIC) / 255.0
+
         output_image_t, _ = sess.run([transmission_layer, reflection_layer], feed_dict={input: input_image})
         output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0)[0, :, :, :]
-
-        input_image_t = cv2.resize(np.float32(cv2.imread(out_dev[i])), size, cv2.INTER_CUBIC) / 255.0
 
         assert (input_image_t.shape[2] == 3 and output_image_t.shape[2] == 3 and input_image_t.shape[0] == output_image_t.shape[0] and input_image_t.shape[1] == output_image_t.shape[1])
         assert (np.abs(input_image_t[0][0][0] - output_image_t[0][0][0]) < 1.0)
 
-        sum_psnr += sess.run(tf.image.psnr(input_image_t, output_image_t, max_val=1.0))
-        sum_ssim += sess.run(tf.image.ssim(tf.image.convert_image_dtype(input_image_t, tf.float32), tf.image.convert_image_dtype(output_image_t, tf.float32), max_val=1.0))
+        current_psnr, current_ssim = sess.run([psnr, ssim], feed_dict={input_t: input_image_t, output_t: output_image_t})
+        print(current_psnr, current_ssim)
+
+        sum_psnr += current_psnr
+        sum_ssim += current_ssim
 
         # cv2.imwrite("./test_results/test_t_input.png" ,
         #             np.uint8(input_image_t[:, :, 0:3]*255))  # output transmission layer
@@ -209,7 +218,7 @@ for epoch in range(1, maxepoch):
     logger.log_scalar('PSNR', sum_psnr, epoch)
 
     # save model and images every epoch
-    if epoch > 50 and epoch % ARGS.save_model_freq == 0:
+    if epoch % ARGS.save_model_freq == 0:
         os.makedirs("%s/%04d" % (task, epoch))
         saver.save(sess, "%s/model.ckpt" % task)
         saver.save(sess, "%s/%04d/model.ckpt" % (task, epoch))

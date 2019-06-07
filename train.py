@@ -118,7 +118,7 @@ for epoch in range(1, maxepoch):
             _id = id % len(input_real_names)
             inputimg = cv2.imread(input_real_names[_id], -1)
             file = os.path.splitext(os.path.basename(input_real_names[_id]))[0]
-            neww = np.random.randint(256, 480)
+            neww = np.random.randint(256, 400)
             newh = round((neww / inputimg.shape[1]) * inputimg.shape[0])
             input_image = cv2.resize(np.float32(inputimg), (neww, newh), cv2.INTER_CUBIC) / 255.0
             output_image_t = cv2.resize(np.float32(cv2.imread(output_real_names1[_id], -1)), (neww, newh),

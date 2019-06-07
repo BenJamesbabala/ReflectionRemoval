@@ -23,7 +23,7 @@ task = ARGS.task
 continue_training = ARGS.continue_training
 hyper = ARGS.is_hyper == 1
 
-maxepoch = 200
+maxepoch = 500
 # os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
 os.environ['CUDA_VISIBLE_DEVICES'] = str(0)
 EPS = 1e-12
@@ -72,23 +72,29 @@ with tf.variable_scope(tf.get_variable_scope()):
 train_vars = tf.trainable_variables()
 d_vars = [var for var in train_vars if 'discriminator' in var.name]
 g_vars = [var for var in train_vars if 'g_' in var.name]
-g_opt = tf.train.AdamOptimizer(learning_rate=0.001).minimize(loss, var_list=g_vars)  # optimizer for the generator
+
+alpha = 0.01
+if continue_training:
+    alpha = 0.001
+
+g_opt = tf.train.AdamOptimizer(learning_rate=alpha).minimize(loss, var_list=g_vars)  # optimizer for the generator
 d_opt = tf.train.AdamOptimizer(learning_rate=0.0001).minimize(d_loss, var_list=d_vars)  # optimizer for the discriminator
 
 # for var in tf.trainable_variables():
 #     print("Listing trainable variables ... ")
 #     print(var)
 
-saver = tf.train.Saver(max_to_keep=200)
+saver = tf.train.Saver(max_to_keep=300)
 
 ######### Session #########
 sess = tf.Session()
 sess.run(tf.global_variables_initializer())
 ckpt = tf.train.get_checkpoint_state(task)
 print("[i] contain checkpoint: ", ckpt)
-saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
-print('loaded ' + ckpt.model_checkpoint_path)
-saver_restore.restore(sess, ckpt.model_checkpoint_path)
+if continue_training and ckpt:
+    saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
+    print('loaded ' + ckpt.model_checkpoint_path)
+    saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
 input_real_names, output_real_names1, _ = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
@@ -116,26 +122,43 @@ for epoch in range(1, maxepoch):
         st = time.time()
         if picked[id] is None:
             _id = id % len(input_real_names)
+
+            in_ = None
+            out_t = None
+            out_r = None
             inputimg = cv2.imread(input_real_names[_id], -1)
             file = os.path.splitext(os.path.basename(input_real_names[_id]))[0]
-            neww = np.random.randint(256, 400)
-            newh = round((neww / inputimg.shape[1]) * inputimg.shape[0])
-            input_image = cv2.resize(np.float32(inputimg), (neww, newh), cv2.INTER_CUBIC) / 255.0
-            output_image_t = cv2.resize(np.float32(cv2.imread(output_real_names1[_id], -1)), (neww, newh),
-                                        cv2.INTER_CUBIC) / 255.0
-            sigma = 0.0
+            inputimg_t = cv2.imread(output_real_names1[_id], -1)
 
-            in_ = np.expand_dims(input_image, axis=0)
-            out_t = np.expand_dims(output_image_t, axis=0)
-            out_r = np.expand_dims(input_image - output_image_t, axis=0)
+            if np.random.rand() < 0.4:
+                neww = np.random.randint(256, 400)
+                newh = round((neww / inputimg.shape[1]) * inputimg.shape[0])
+                input_image = cv2.resize(np.float32(inputimg), (neww, newh), cv2.INTER_CUBIC) / 255.0
+                input_image_t = cv2.resize(np.float32(inputimg_t), (neww, newh), cv2.INTER_CUBIC) / 255.0
 
-            # remove some degenerated images (low-light or over-saturated images), heuristically set
-            # if output_images_t[id].max() < 0.15:
-            #     print("Invalid reflection file %s (degenerate channel)" % (file))
-            #     continue
-            # if input_images[id].max() < 0.1:
-            #     print("Invalid file %s (degenerate image)" % (file))
-            #     continue
+                in_ = np.expand_dims(input_image, axis=0)
+                out_t = np.expand_dims(input_image_t, axis=0)
+                out_r = np.expand_dims(input_image - input_image_t, axis=0)
+            else:
+                short = min(inputimg.shape[1], inputimg.shape[0])
+                new_short = float(np.random.randint(256, 384))
+                nw = int(inputimg.shape[0]*new_short/short)
+                nh = int(inputimg.shape[1]*new_short/short)
+                nx = int(np.random.rand()*(inputimg.shape[0] - nw))
+                ny = int(np.random.rand()*(inputimg.shape[1] - nh))
+
+                # print(inputimg.shape[0], inputimg.shape[1])
+                # print(nx, ny, nw, nh)
+
+                input_image = np.float32(inputimg)[nx:nx+nw, ny:ny+nh, :] / 225.0
+                input_image_t = np.float32(inputimg_t)[nx:nx+nw, ny:ny+nh, :] / 225.0
+
+                in_ = np.expand_dims(input_image, axis=0)
+                out_t = np.expand_dims(input_image_t, axis=0)
+                out_r = np.expand_dims(input_image - input_image_t, axis=0)
+
+                if out_r.max() < 0.01:
+                    continue
 
             # alternate training, update discriminator every two iterations
             if cnt % 2 == 0:
@@ -218,7 +241,10 @@ for epoch in range(1, maxepoch):
     logger.log_scalar('PSNR', sum_psnr, epoch)
 
     # save model and images every epoch
-    if epoch % ARGS.save_model_freq == 0:
+    rule = epoch % ARGS.save_model_freq == 0
+    if not continue_training:
+        rule = (epoch > 200 and epoch % ARGS.save_model_freq == 0) or (epoch < 200 and epoch % (10 * ARGS.save_model_freq) == 0)
+    if rule:
         os.makedirs("%s/%04d" % (task, epoch))
         saver.save(sess, "%s/model.ckpt" % task)
         saver.save(sess, "%s/%04d/model.ckpt" % (task, epoch))

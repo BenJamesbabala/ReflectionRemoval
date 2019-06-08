@@ -11,8 +11,8 @@ from utils import prepare_data
 from tensorboard_logging import Logger
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--task", default="pre-trained", help="path to folder containing the model")
-parser.add_argument("--data", default="root_training_real_data", help="path to real dataset")
+parser.add_argument("--task", default="models", help="path to folder of the model")
+parser.add_argument("--data", default="training_images", help="path to dataset")
 parser.add_argument("--save_model_freq", default=1, type=int, help="frequency to save model")
 parser.add_argument("--is_hyper", default=1, type=int, help="use hypercolumn or not")
 parser.add_argument("--c", action="store_true",

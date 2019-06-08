@@ -12,15 +12,15 @@ from tensorboard_logging import Logger
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--task", default="pre-trained", help="path to folder containing the model")
-parser.add_argument("--data_real_dir", default="root_training_real_data", help="path to real dataset")
+parser.add_argument("--data", default="root_training_real_data", help="path to real dataset")
 parser.add_argument("--save_model_freq", default=1, type=int, help="frequency to save model")
 parser.add_argument("--is_hyper", default=1, type=int, help="use hypercolumn or not")
-parser.add_argument("--continue_training", action="store_true",
+parser.add_argument("--c", action="store_true",
                     help="search for checkpoint in the subfolder specified by `task` argument")
 ARGS = parser.parse_args()
 
 task = ARGS.task
-continue_training = ARGS.continue_training
+continue_training = ARGS.c
 hyper = ARGS.is_hyper == 1
 
 maxepoch = 200
@@ -30,7 +30,7 @@ EPS = 1e-12
 channel = 64  # number of feature channels to build the model, set to 64
 VGG_MEAN = [103.939, 116.779, 123.68] # B G R
 
-train_real_root = [ARGS.data_real_dir]
+train_real_root = [ARGS.data]
 
 # set up the model and define the graph
 with tf.variable_scope(tf.get_variable_scope()):
@@ -86,9 +86,10 @@ sess = tf.Session()
 sess.run(tf.global_variables_initializer())
 ckpt = tf.train.get_checkpoint_state(task)
 print("[i] contain checkpoint: ", ckpt)
-saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
-print('loaded ' + ckpt.model_checkpoint_path)
-saver_restore.restore(sess, ckpt.model_checkpoint_path)
+if continue_training and ckpt:
+    saver_restore = tf.train.Saver([var for var in tf.trainable_variables() if 'discriminator' not in var.name])
+    print('loaded ' + ckpt.model_checkpoint_path)
+    saver_restore.restore(sess, ckpt.model_checkpoint_path)
 
 input_real_names, output_real_names1, _ = prepare_data(train_real_root)  # no reflection ground truth for real images
 print("[i] Total %d training images, first path of real image is %s." % (len(output_real_names1), input_real_names[0]))
@@ -117,13 +118,23 @@ for epoch in range(1, maxepoch):
         if picked[id] is None:
             _id = id % len(input_real_names)
             inputimg = cv2.imread(input_real_names[_id], -1)
-            file = os.path.splitext(os.path.basename(input_real_names[_id]))[0]
-            neww = np.random.randint(256, 400)
+            inputimg_t = cv2.imread(output_real_names1[_id], -1)
+
+            ratio = 1.0 - np.random.rand() / 3.
+            nw = int(inputimg.shape[0] * ratio)
+            nh = int(inputimg.shape[1] * ratio)
+            nx = int(np.random.rand() * (inputimg.shape[0] - nw))
+            ny = int(np.random.rand() * (inputimg.shape[1] - nh))
+
+            inputimg = inputimg[nx:nx+nw, ny:ny+nh, :]
+            inputimg_t = inputimg_t[nx:nx+nw, ny:ny+nh, :]
+
+            neww = np.random.randint(256, 384)
             newh = round((neww / inputimg.shape[1]) * inputimg.shape[0])
             input_image = cv2.resize(np.float32(inputimg), (neww, newh), cv2.INTER_CUBIC) / 255.0
-            output_image_t = cv2.resize(np.float32(cv2.imread(output_real_names1[_id], -1)), (neww, newh),
-                                        cv2.INTER_CUBIC) / 255.0
-            sigma = 0.0
+            output_image_t = cv2.resize(np.float32(inputimg_t), (neww, newh), cv2.INTER_CUBIC) / 255.0
+
+            assert (input_image.shape[0] == output_image_t.shape[0] and input_image.shape[1] == output_image_t.shape[1])
 
             in_ = np.expand_dims(input_image, axis=0)
             out_t = np.expand_dims(output_image_t, axis=0)

@@ -4,7 +4,7 @@ import tensorflow as tf
 import numpy as np
 import argparse
 
-from discriminator import build_discriminator
+from discriminator import build_discriminator, build_discriminator_WGAN
 from model import build, compute_percep_loss, compute_l1_loss, compute_exclusion_loss
 from utils import prepare_data
 
@@ -15,15 +15,17 @@ parser.add_argument("--task", default="models", help="path to folder of the mode
 parser.add_argument("--data", default="training_images", help="path to dataset")
 parser.add_argument("--save_model_freq", default=1, type=int, help="frequency to save model")
 parser.add_argument("--is_hyper", default=1, type=int, help="use hypercolumn or not")
-parser.add_argument("--c", action="store_true",
-                    help="search for checkpoint in the subfolder specified by `task` argument")
+parser.add_argument("--c", action="store_true", help="search for checkpoint in the subfolder specified by `task` argument")
+parser.add_argument("--wgan", default=True, help="search for checkpoint in the subfolder specified by `task` argument")
 ARGS = parser.parse_args()
 
 task = ARGS.task
 continue_training = ARGS.c
 hyper = ARGS.is_hyper == 1
+wgan = ARGS.wgan
+print('Run WGAN : ', wgan)
 
-maxepoch = 200
+maxepoch = 250
 # os.system('nvidia-smi -q -d Memory |grep -A4 GPU|grep Free >tmp')
 os.environ['CUDA_VISIBLE_DEVICES'] = str(0)
 EPS = 1e-12
@@ -44,24 +46,44 @@ with tf.variable_scope(tf.get_variable_scope()):
 
     # Perceptual Loss
     loss_percep_t = compute_percep_loss(transmission_layer, target)
+    loss_percep_t += compute_percep_loss(reflection_layer, reflection, reuse=True)
 
     # L1 loss on reflection image
     loss_l1_r = compute_l1_loss(reflection_layer, reflection)
 
     # Adversarial Loss
-    with tf.variable_scope("discriminator"):
-        predict_real, pred_real_dict = build_discriminator(input, target)
-    with tf.variable_scope("discriminator", reuse=True):
-        predict_fake, pred_fake_dict = build_discriminator(input, transmission_layer)
+    if not wgan:
+        with tf.variable_scope("discriminator"):
+            predict_real, pred_real_dict = build_discriminator(input, target)
+        with tf.variable_scope("discriminator", reuse=True):
+            predict_fake, pred_fake_dict = build_discriminator(input, transmission_layer)
 
-    d_loss = (tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))) * 0.5
-    g_loss = tf.reduce_mean(-tf.log(predict_fake + EPS))
+        d_loss = (tf.reduce_mean(-(tf.log(predict_real + EPS) + tf.log(1 - predict_fake + EPS)))) * 0.5
+        g_loss = tf.reduce_mean(-tf.log(predict_fake + EPS))
+    else:
+        with tf.variable_scope("discriminator"):
+            predict_real, _ = build_discriminator_WGAN(input, target)
+        with tf.variable_scope("discriminator", reuse=True):
+            predict_fake, _ = build_discriminator_WGAN(input, transmission_layer)
+
+        d_loss = tf.reduce_mean(predict_fake) - tf.reduce_mean(predict_real)
+        adversarial_loss = - tf.reduce_mean(predict_fake)
+
+        # Gradient Penalty
+        alpha = tf.random_uniform(shape=[1, 1, 1, 1], minval=0., maxval=1.)
+        interpolates = target + alpha * (transmission_layer - target)
+        with tf.variable_scope("discriminator", reuse=True):
+            predict_fake_hat, _ = build_discriminator_WGAN(input, interpolates)
+        gradients = tf.gradients(predict_fake_hat, [interpolates])[0]
+        slopes = tf.sqrt(tf.reduce_sum(tf.square(gradients), reduction_indices=[1, 2, 3]))
+        gradient_penalty = tf.reduce_mean((slopes - 1.) ** 2)
+        d_loss += 10 * gradient_penalty
 
     # Gradient loss
     loss_gradx, loss_grady = compute_exclusion_loss(transmission_layer, reflection_layer, level=3)
     loss_grad = tf.reduce_sum(sum(loss_gradx) / 3.) + tf.reduce_sum(sum(loss_grady) / 3.)
 
-    loss = loss_l1_r + loss_percep_t * 0.2 + loss_grad * 0.1 + g_loss * 0.01
+    loss = loss_l1_r * 0.6 + loss_percep_t * 0.2 + loss_grad * 0.3 + adversarial_loss * 1e-3
 
     input_t = tf.placeholder(tf.float32, shape=[None, None, 3])
     output_t = tf.placeholder(tf.float32, shape=[None, None, 3])
@@ -156,7 +178,7 @@ for epoch in range(1, maxepoch):
             # update G
             fetch_list = [g_opt,
                           transmission_layer, reflection_layer,
-                          d_loss, g_loss,
+                          d_loss, adversarial_loss,
                           loss_percep_t, loss_grad, loss_l1_r, loss]
             _, pred_image_t, pred_image_r, current_d, current_g, current_p, current_grad, current_l1, current_loss= \
                 sess.run(fetch_list, feed_dict={input: in_, target: out_t, reflection:out_r})

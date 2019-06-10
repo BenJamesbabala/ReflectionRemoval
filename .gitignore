@@ -9,3 +9,12 @@ test_images/
 test_results/
 VGG_Model/
 __pycache__/
+root_training_synthetic_data/
+real/
+duplicated/
+test_results_*
+r0*
+logs/
+dev_images/
+pre-trained-o/
+root_training_real_data - Copy/

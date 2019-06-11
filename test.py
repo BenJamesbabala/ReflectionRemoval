@@ -4,10 +4,11 @@ import numpy as np
 import tensorflow as tf
 from model import build
 import argparse
-from math import log10
+
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--task", default="pre-trained", help="path to folder containing the model")
+parser.add_argument("--task", default="models", help="path to folder containing the model")
 ARGS = parser.parse_args()
 task = ARGS.task
 

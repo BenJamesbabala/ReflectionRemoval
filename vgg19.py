@@ -15,7 +15,7 @@ def get_weight_bias(vgg_layers,i):
     bias=tf.constant(np.reshape(bias,(bias.size)))
     return weights,bias
 
-vgg_path=scipy.io.loadmat('./VGG_Model/imagenet-vgg-verydeep-19.mat')
+vgg_path=scipy.io.loadmat('./imagenet-vgg-verydeep-19.mat')
 print("[i] Loaded pre-trained vgg19 parameters")
 # build VGG19 to load pre-trained parameters
 def build_vgg19(input,reuse=False):

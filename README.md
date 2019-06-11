@@ -20,3 +20,7 @@ See more parameters in train.py.
 python test.py
 ```
 See more parameters in test.py.
+
+## Reference
+
+Part of the code is based on https://github.com/ceciliavision/perceptual-reflection-removal

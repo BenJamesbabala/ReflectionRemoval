@@ -8,3 +8,4 @@ test_results/
 training_images/
 dev_images/
 test_images_all/
+imagenet-vgg-verydeep-19.mat

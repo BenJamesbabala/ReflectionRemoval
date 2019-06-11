@@ -49,9 +49,9 @@ for val_path in val_names:
     output_image_t = np.minimum(np.maximum(output_image_t, 0.0), 1.0) * 255.0
     output_image_r = np.minimum(np.maximum(output_image_r, 0.0), 1.0) * 255.0
 
-    cv2.imwrite("./test_results/%s_input.png" % (testind), img)
+    #cv2.imwrite("./test_results/%s_input.png" % (testind), img)
     cv2.imwrite("./test_results/%s_t_output.png" % (testind), np.uint8(output_image_t[0, :, :, 0:3]))  # output transmission layer
-    cv2.imwrite("./test_results/%s_r_output.png" % (testind), np.uint8(output_image_r[0, :, :, 0:3]))  # output reflection layer
+    #cv2.imwrite("./test_results/%s_r_output.png" % (testind), np.uint8(output_image_r[0, :, :, 0:3]))  # output reflection layer
 
     # mse = ((gt - t) ** 2).mean()
     # psnr = 10 * log10(1 / mse)

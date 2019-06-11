@@ -1,20 +1,10 @@
-.idea/misc.xml
-.idea/modules.xml
-.idea/ReflectionRemoval.iml
-.idea/vcs.xml
-.idea/workspace.xml
-pre-trained/
-root_training_real_data/
-test_images/
-test_results/
+.idea/
 VGG_Model/
 __pycache__/
-root_training_synthetic_data/
-real/
-duplicated/
-test_results_*
-r0*
-logs/
+models/
+r*/
+test_images/
+test_results/
+training_images/
 dev_images/
-pre-trained-o/
-root_training_real_data - Copy/
+test_images_all/

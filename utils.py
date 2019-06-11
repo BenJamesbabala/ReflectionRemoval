@@ -77,8 +77,8 @@ def prepare_data(train_path):
     image1 = []
     image2 = []
     for dirname in train_path:
-        train_t_gt = dirname + "/transmission_layer/"
-        train_r_gt = dirname + "/reflection_layer/"
+        train_t_gt = dirname + "/transmission/"
+        train_r_gt = dirname + "/reflection/"
         train_b = dirname + "/blended/"
         for root, _, fnames in sorted(os.walk(train_t_gt)):
             for fname in fnames:
